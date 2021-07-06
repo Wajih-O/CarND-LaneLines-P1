@@ -2,6 +2,7 @@ from typing import List, Tuple, Dict
 import numpy as np
 from dataclasses import dataclass
 
+
 from helpers.point import Point
 
 # TODO: Review/Complete Point class integration into the Segment implementation
@@ -12,11 +13,21 @@ class Segment:
         self.x1, self.y1, self.x2, self.y2 = segment
         # Sorted ends  with x (axis)  TODO:  refactor with Point class
         # if self.x2 < self.x1:
-        #     self.x2, self.y2, self.x1, self.y1 = segment
+        #    self.x2, self.y2, self.x1, self.y1 = segment
 
     def __eq__(self, other):
         # TODO: sort the ends / support flipped ends
         return self.x1 == other.x1 and self.y1 == other.y1 and self.x2 == other.x2 and self.y2 == other.y2
+
+    @property
+    def horizontal(self) -> bool:
+        if self.y1 == self.y2:
+            return True
+
+    def nearly_horizontal(self, slope_threshold=.2):
+        if self.horizontal:
+            return True
+        return (1/np.abs(self.slope)) < slope_threshold
 
     @property
     def from_(self) -> Point:
@@ -38,28 +49,43 @@ class Segment:
     @property
     def slope(self) -> float:
         """ A helper to extract segment slope """
+        if self.horizontal:
+            raise Exception("Horizontal segment/line")
         return self.x2 - self.x1/(self.y2 - self.y1) # x = f(y)
+
 
     @property
     def norm(self):
         """ A helper to extract segment length """
         return np.linalg.norm([self.x2 - self.x1, self.y2 - self.y1])
 
+
     @property
     def length(self):
         return self.norm
 
     def __repr__(self) -> str:
-        return f'({self.x1}, {self.y1}) <-> ({self.x2}, {self.y2})'
+        return f'({self.x1}, {self.y1}) -> ({self.x2}, {self.y2})'
 
     # Similarity measures
-    def slope_exp_sim(self, other: "Segment", sigma=10):
+    def slope_exp_sim(self, other: "Segment", sigma=30):
         """ A similarity measurement base on the  """
         return np.exp(-np.abs(self.slope - other.slope)/sigma)
 
     def cosine_sim(self, other: "Segment"):
         """ A cosine similarity """
         return  np.dot(self.vect,  other.vect)/(self.norm*other.norm)
+
+    def cross(self, other:"Segment") -> List[Tuple["Segment", "Segment"]]:
+        """ Combine """
+        return [ (self, other),
+                 (Segment(self.ends[0].as_tuple + other.ends[0].as_tuple), Segment(self.ends[1].as_tuple + other.ends[1].as_tuple)),
+                 (Segment(self.ends[0].as_tuple + other.ends[1].as_tuple), Segment(self.ends[0].as_tuple + other.ends[1].as_tuple))]
+
+
+    def min_config_cosine(self, other: "Segment"):
+        return np.mean([np.absolute(segment1.cosine_sim(segment2)) for segment1, segment2 in self.cross(other)])
+
 
     def point_distance(self, point: Point) -> float:
         """ Returns the  distance to the point resulting from the orthogonal projection """
@@ -68,7 +94,7 @@ class Segment:
 
     def sim(self, other, similarity="cosine"):
         if similarity == "cosine":
-            return self.cosine_sim(other)
+            return self.min_config_cosine(other)
         else:
             if similarity == "slope":
                 return self.slope_exp_sim(other)
@@ -118,11 +144,25 @@ class Segment:
 
 
     def weighted_merge(self, other) -> "Segment":
-        """ Weighted merge """
+        """ Weighted merge (interpolate segment) risky if the 2 segments  """
         # Extend each of the (self, other) and sort them decreasingly using their length/norm
         extended = self.mutual_extend(other, sort=True, reverse=True) # extended segments sorted by their norm
-        matching_dict = extended[0].match_ends(extended[1])
-        return matching_dict
+        matching = extended[0].match_ends(extended[1])
+
+        match_1 = Segment(extended[0].ends[0].as_tuple + extended[1].ends[matching[0]].as_tuple)
+        match_2 = Segment(extended[0].ends[1].as_tuple + extended[1].ends[matching[1]].as_tuple)
+
+
+        weight = extended[1].norm/( extended[1].norm + extended[0].norm)
+        t1_x, t1_y = (match_1.vect*weight).ravel()
+        t2_x, t2_y = (match_2.vect*weight).ravel()
+
+        # Translate the longer extended segments ends to their final position
+        end_0_translated = Segment(extended[0].ends[0].as_tuple + extended[0].ends[0].translate(Point(t1_x, t1_y)).as_tuple)
+        end_1_translated = Segment(extended[0].ends[1].as_tuple + extended[0].ends[1].translate(Point(t2_x, t2_y)).as_tuple)
+
+        return Segment(end_0_translated.ends[1].as_tuple + end_1_translated.ends[1].as_tuple)
+
 
 
     def merge(self, other:"Segment") -> "Segment":
@@ -130,6 +170,7 @@ class Segment:
         # if other.norm > self.norm:
         #     return other.merge(self)
         # build the longest possible candidate to project onto the segment
+        # return self.weighted_merge(other)
 
         candidates = [self.extend(other), other.extend(self)]
 

@@ -31,9 +31,8 @@ def draw_lines(img, lines:List[Segment], color=[255, 0, 0], thickness=2):
     return img
 
 
-def visualize_segments(clusters: List[Tuple[Segment, str]] , image_path):
+def visualize_segments(clusters: List[Tuple[Segment, Tuple]] , image_path, ax = plt):
     """ Visualize segment clusters (with assigned color to each segment) """
-    plt.figure(figsize=(10,10))
     img = None
     if len(clusters):
         segments, color = clusters[0]
@@ -42,4 +41,4 @@ def visualize_segments(clusters: List[Tuple[Segment, str]] , image_path):
         segments, color = cluster
         img = draw_lines(img, segments, color=color)
     if img is not None:
-        plt.imshow(img)
+        ax.imshow(img)

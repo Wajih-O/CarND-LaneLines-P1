@@ -194,17 +194,18 @@ def agglomerate(data: List[Segment], threshold: float, similarity="cosine") -> T
         data_dict[(index,)] = item
 
     # Sorted segment by length (from the longest to the shortest segment)
-    sorted_segments = sorted([(key, segment) for key, segment in data_dict.items()], key=lambda x: x[1].norm, reverse=True)
+    # to prioritize the segments to be merged (short or long ones)
+    segments = sorted([(key, segment) for key, segment in data_dict.items()], key=lambda x: x[1].norm, reverse=True)
 
     # populate similarities (Matrix as a dictionary)
     similarities = {}
-    for i in range(len(sorted_segments)):
+    for i in range(len(segments)):
         # similarities.
-        key_i, segment_i = sorted_segments[i]
+        key_i, segment_i = segments[i]
         similarities[key_i] = SimContainer(segment_i)
-        for  j in range(i+1, len(sorted_segments)):
-            key_j, segment_j = sorted_segments[j]
-            similarities[key_i].put(key_j, segment_i.sim(segment_j))
+        for  j in range(1, len(segments)):
+            key_j, segment_j = segments[j]
+            similarities[key_i].put(key_j, segment_i.sim(segment_j, similarity=similarity))
 
     # Search for the best items to agglomerate/merge
     best, orig  = get_merge_candidates(similarities)
@@ -235,9 +236,9 @@ def agglomerate(data: List[Segment], threshold: float, similarity="cosine") -> T
         similarities[merged._id] = SimContainer(merged_segment)
 
         for key in to_update:
-            similarities[merged._id].put(key, merged_segment.sim(data_dict[key]) )
+            similarities[merged._id].put(key, merged_segment.sim(data_dict[key], similarity=similarity))
         # get the next best candidates to agglomerate
         best, orig  =  get_merge_candidates(similarities)
-        # pprint(similarities)
+
 
     return similarities, data_dict
