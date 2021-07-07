@@ -167,12 +167,9 @@ class Segment:
 
     def merge(self, other:"Segment") -> "Segment":
         """ Merges/extends the bigger segment with the `smaller one` projection """
-        # if other.norm > self.norm:
-        #     return other.merge(self)
-        # build the longest possible candidate to project onto the segment
-        # return self.weighted_merge(other)
+        # return self.weighted_merge(other) # alternatively run a weighted merge to clean-up
 
-        candidates = [self.extend(other), other.extend(self)]
+        candidates = self.mutual_extend(other)
 
         return candidates[np.argmax(list(map(lambda x:x.norm,candidates)))]
 
