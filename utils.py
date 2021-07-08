@@ -41,7 +41,8 @@ class Mergeable:
 
     def cache(self, store:dict):
         """ Compute the merge and store it """
-    def retrieve(self, store) -> Optional["Merge"]:
+
+    def retrieve(self, store) -> Optional["Mergeable"]:
         """Retrieves the merge from a store"""
         return store.get(self._id, None)
 
