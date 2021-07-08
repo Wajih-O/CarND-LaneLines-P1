@@ -1,4 +1,4 @@
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Optional
 import numpy as np
 from dataclasses import dataclass
 
@@ -20,14 +20,36 @@ class Segment:
         return self.x1 == other.x1 and self.y1 == other.y1 and self.x2 == other.x2 and self.y2 == other.y2
 
     @property
+    def equation(self) -> Tuple[float, float, float]:
+        """ returns line equation ax + by + c = 0"""
+        if self.horizontal:
+            return (0, 1, -self.y1)
+        if self.vertical:
+            return (1, 0, -self.x1)
+        else:
+            return (-self.slope,  1,  (self.slope * self.x1) - self.y1)
+
+    def intersection(self, other) -> Optional[Point]:
+        """" Compute intersection using homogenous coordinates """
+        a1, b1, c1 = self.equation
+        a2, b2, c2 = other.equation
+        c_inter = a1*b2 - a2 *b1
+        if c_inter:
+            return Point(int((b1*c2 - b2*c1)/c_inter) , int((a2*c1 - a1*c2)/c_inter))
+        return None
+
+    @property
     def horizontal(self) -> bool:
-        if self.y1 == self.y2:
-            return True
+        return self.y1 == self.y2
+
+    @property
+    def vertical(self) -> bool:
+        return self.x1 == self.x2
 
     def nearly_horizontal(self, slope_threshold=.2):
         if self.horizontal:
             return True
-        return (1/np.abs(self.slope)) < slope_threshold
+        return np.abs(self.slope) < slope_threshold
 
     @property
     def from_(self) -> Point:
@@ -49,16 +71,14 @@ class Segment:
     @property
     def slope(self) -> float:
         """ A helper to extract segment slope """
-        if self.horizontal:
-            raise Exception("Horizontal segment/line")
-        return self.x2 - self.x1/(self.y2 - self.y1) # x = f(y)
-
+        if self.vertical:
+            raise Exception("Vertical segment/line !")
+        return (self.y2 - self.y1)/(self.x2 - self.x1) # height = f(width)
 
     @property
     def norm(self):
         """ A helper to extract segment length """
         return np.linalg.norm([self.x2 - self.x1, self.y2 - self.y1])
-
 
     @property
     def length(self):
@@ -68,7 +88,7 @@ class Segment:
         return f'({self.x1}, {self.y1}) -> ({self.x2}, {self.y2})'
 
     # Similarity measures
-    def slope_exp_sim(self, other: "Segment", sigma=30):
+    def slope_exp_sim(self, other: "Segment", sigma=1):
         """ A similarity measurement base on the  """
         return np.exp(-np.abs(self.slope - other.slope)/sigma)
 
@@ -168,9 +188,17 @@ class Segment:
     def merge(self, other:"Segment") -> "Segment":
         """ Merges/extends the bigger segment with the `smaller one` projection """
         # return self.weighted_merge(other) # alternatively run a weighted merge to clean-up
+        # extends the longer segment with the ends of smaller one alternatively run a weighted merge to clean-up
 
+        # TODO: Make this mothod configurable
+        # Config 1:
+        # if self.norm > other.norm:
+        #     return self.extend(other)
+        # else:
+        #     return other.extend(self)
+
+        # Mutual extend
         candidates = self.mutual_extend(other)
-
         return candidates[np.argmax(list(map(lambda x:x.norm,candidates)))]
 
     def to_tuple(self):
