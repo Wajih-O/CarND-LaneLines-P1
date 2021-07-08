@@ -11,7 +11,7 @@ from pprint import pprint
 import logging
 
 import cv2
-from segment import Segment
+from lane_detection.segment import Segment
 
 # Configure logging should be moved
 logging.basicConfig(filename='utils.log', level=logging.DEBUG)

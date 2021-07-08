@@ -3,7 +3,7 @@ import numpy as np
 from dataclasses import dataclass
 
 
-from helpers.point import Point
+from lane_detection.point import Point
 
 # TODO: Review/Complete Point class integration into the Segment implementation
 
