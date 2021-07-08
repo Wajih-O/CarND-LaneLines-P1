@@ -8,7 +8,7 @@ from segment import Segment
 
 
 
-def draw_lines(img, lines:List[Segment], color=[255, 0, 0], thickness=2):
+def draw_lines(img, lines:List[Segment], color=[255, 0, 0], thickness=4):
     """
     NOTE: this is the function you might want to use as a starting point once you want to
     average/extrapolate the line segments you detect to map out the full
@@ -26,7 +26,7 @@ def draw_lines(img, lines:List[Segment], color=[255, 0, 0], thickness=2):
     this function with the weighted_img() function below
     """
 
-    for segment in lines:
+    for segment in filter(lambda x: x is not None, lines):
         cv2.line(img, (segment.x1, segment.y1), (segment.x2, segment.y2), color, thickness)
     return img
 
