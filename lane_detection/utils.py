@@ -97,7 +97,7 @@ def interest_region_crop(image):
 
 
 # for slope Similarity it is a exp kernel on absolute difference with configurable sigma (for the kernel)
-config = {"threshold": 0.95, "similarity": "slope", "slope_threshold": 0.5}
+config = {"threshold": 0.98, "similarity": "slope", "slope_threshold": 0.5}
 
 
 def extract_lane(image, config=config) -> List[Segment]:
@@ -139,7 +139,7 @@ def extract_lane(image, config=config) -> List[Segment]:
             reverse=True,
         )
         segments = merged_segments[:]
-        threshold *= 0.95  #  more tolerance to the similarity threshold
+        threshold *= 0.9  #  more tolerance to the similarity threshold
 
     right, left = None, None
     left_right = sorted(
