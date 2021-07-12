@@ -1,10 +1,10 @@
-from typing import List, Tuple
+from typing import List, Tuple, Dict, Optional
 
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 import cv2
 
-from lane_detection import Segment
+from lane_detection.segment import Segment
 
 
 
@@ -42,3 +42,29 @@ def visualize_segments(clusters: List[Tuple[Segment, Tuple]] , image_path, ax = 
         img = draw_lines(img, segments, color=color)
     if img is not None:
         ax.imshow(img)
+    return img
+
+
+palette = [(255,0,0), (0,255,0), (0,0,255), (255,255,0)] # a colors palette (to use with rotating index)
+
+def visualize_clusters_merge(clusters_dict, segments_cache, image, palette=palette):
+    """ A helper to visualize/render segments merging result """
+    # Extract and sort merged segments
+    merged_segments = sorted(filter(lambda segment: segment is not None, [segments_cache.get(key, None) for key in clusters_dict]), key=lambda segment: segment.length, reverse=True)
+    visualize_segments( [ ([segment],  palette[index%len(palette)]) for index, segment in enumerate(merged_segments)], image)
+
+
+
+def draw_lane(image, extracted_lane:Dict={}, output_path:Optional[str]=None) :
+    """ render extracted lane """
+    # TODO: refactor separate concern moving out the saving to a file
+    output_image = image.copy()
+    if "right" in extracted_lane:
+        output_image = draw_lines(output_image, [extracted_lane["right"]], color=(0, 255, 0)) # right side in green
+    if "left" in extracted_lane:
+        output_image = draw_lines(output_image,  [extracted_lane["left"]], color=(255, 0, 0)) # left in red
+
+    save_status = None
+    if output_path:
+        save_status = plt.imsave(output_path, output_image) # TODO: use cv2.imsave instead
+    return output_image
