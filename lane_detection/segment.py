@@ -5,15 +5,15 @@ from dataclasses import dataclass
 
 from lane_detection.point import Point
 
-# TODO: Review/Complete Point class integration into the Segment implementation
+# TODO: Complete Point class integration into the Segment implementation
 
 
 class Segment:
     def __init__(self, segment: Tuple[int, int, int, int]):
         self.x1, self.y1, self.x2, self.y2 = segment
         # Sorted ends  with x (axis)  TODO:  refactor with Point class
-        # if self.x2 < self.x1:
-        #    self.x2, self.y2, self.x1, self.y1 = segment
+        # if self.x2 > self.x1:
+        #     self.x2, self.y2, self.x1, self.y1 = segment
 
     def __eq__(self, other):
         # TODO: sort the ends / support flipped ends
@@ -46,10 +46,13 @@ class Segment:
     def vertical(self) -> bool:
         return self.x1 == self.x2
 
-    def nearly_horizontal(self, slope_threshold=.2):
+    def nearly_horizontal(self, threshold=.2):
         if self.horizontal:
             return True
-        return np.abs(self.slope) < slope_threshold
+        return np.abs(self.slope) < threshold
+
+    def nearly_vertical(self, threshold=.1):
+        return self.vertical or (np.abs(np.dot(self.vect, np.array((1, 0))))/self.norm < threshold)
 
     @property
     def from_(self) -> Point:
@@ -127,12 +130,13 @@ class Segment:
         projected_x, projected_y =   ((np.dot(self.vect,  segment.vect)/((self.norm)**2) * self.vect) + np.array([self.x1, self.y1])).ravel()
         return Point(int(projected_x), int(projected_y))
 
-    def point_extend(self, point: Point, distance_threshold=20) -> "Segment":
+    def point_extend(self, point: Point, distance_threshold=20, inclusive=True) -> "Segment":
         """ Extends the segment with a point (in the segment)/ if not -> with it projection"""
         projected = self.project(point) # it safer to project
         candidates = [Segment((self.x1, self.y1, projected.x, projected.y)),
-                      Segment((projected.x, projected.y, self.x2, self.y2)),
-                      self]
+                      Segment((projected.x, projected.y, self.x2, self.y2))]
+        if inclusive:
+            candidates.append
         return candidates[np.argmax(list(map(lambda x:x.norm,candidates)))]
 
     def match_ends(self, other:"Segment"):
@@ -192,14 +196,14 @@ class Segment:
 
         # TODO: Make this mothod configurable
         # Config 1:
-        # if self.norm > other.norm:
-        #     return self.extend(other)
-        # else:
-        #     return other.extend(self)
+        if self.norm > other.norm:
+            return self.extend(other)
+        else:
+            return other.extend(self)
 
         # Mutual extend
-        candidates = self.mutual_extend(other)
-        return candidates[np.argmax(list(map(lambda x:x.norm,candidates)))]
+        # candidates = self.mutual_extend(other)
+        # return candidates[np.argmax(list(map(lambda x:x.norm,candidates)))]
 
     def to_tuple(self):
         """ Transfrom segment to tuple """
