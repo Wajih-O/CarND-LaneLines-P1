@@ -7,8 +7,7 @@ import cv2
 from lane_detection.segment import Segment
 
 
-
-def draw_lines(img, lines:List[Segment], color=[255, 0, 0], thickness=4):
+def draw_lines(img, lines: List[Segment], color=[255, 0, 0], thickness=4):
     """
     NOTE: this is the function you might want to use as a starting point once you want to
     average/extrapolate the line segments you detect to map out the full
@@ -27,12 +26,14 @@ def draw_lines(img, lines:List[Segment], color=[255, 0, 0], thickness=4):
     """
 
     for segment in filter(lambda x: x is not None, lines):
-        cv2.line(img, (segment.x1, segment.y1), (segment.x2, segment.y2), color, thickness)
+        cv2.line(
+            img, (segment.x1, segment.y1), (segment.x2, segment.y2), color, thickness
+        )
     return img
 
 
-def visualize_segments(clusters: List[Tuple[Segment, Tuple]] , image_path, ax = plt):
-    """ Visualize segment clusters (with assigned color to each segment) """
+def visualize_segments(clusters: List[Tuple[Segment, Tuple]], image_path, ax=plt):
+    """Visualize segment clusters (with assigned color to each segment)"""
     img = None
     if len(clusters):
         segments, color = clusters[0]
@@ -45,26 +46,50 @@ def visualize_segments(clusters: List[Tuple[Segment, Tuple]] , image_path, ax = 
     return img
 
 
-palette = [(255,0,0), (0,255,0), (0,0,255), (255,255,0)] # a colors palette (to use with rotating index)
+palette = [
+    (255, 0, 0),
+    (0, 255, 0),
+    (0, 0, 255),
+    (255, 255, 0),
+]  # a colors palette (to use with rotating index)
+
 
 def visualize_clusters_merge(clusters_dict, segments_cache, image, palette=palette):
-    """ A helper to visualize/render segments merging result """
+    """A helper to visualize/render segments merging result"""
     # Extract and sort merged segments
-    merged_segments = sorted(filter(lambda segment: segment is not None, [segments_cache.get(key, None) for key in clusters_dict]), key=lambda segment: segment.length, reverse=True)
-    visualize_segments( [ ([segment],  palette[index%len(palette)]) for index, segment in enumerate(merged_segments)], image)
+    merged_segments = sorted(
+        filter(
+            lambda segment: segment is not None,
+            [segments_cache.get(key, None) for key in clusters_dict],
+        ),
+        key=lambda segment: segment.length,
+        reverse=True,
+    )
+    visualize_segments(
+        [
+            ([segment], palette[index % len(palette)])
+            for index, segment in enumerate(merged_segments)
+        ],
+        image,
+    )
 
 
-
-def draw_lane(image, extracted_lane:Dict={}, output_path:Optional[str]=None) :
-    """ render extracted lane """
+def draw_lane(image, extracted_lane: Dict = {}, output_path: Optional[str] = None):
+    """render extracted lane"""
     # TODO: refactor separate concern moving out the saving to a file
     output_image = image.copy()
     if "right" in extracted_lane:
-        output_image = draw_lines(output_image, [extracted_lane["right"]], color=(0, 255, 0)) # right side in green
+        output_image = draw_lines(
+            output_image, [extracted_lane["right"]], color=(0, 255, 0)
+        )  # right side in green
     if "left" in extracted_lane:
-        output_image = draw_lines(output_image,  [extracted_lane["left"]], color=(255, 0, 0)) # left in red
+        output_image = draw_lines(
+            output_image, [extracted_lane["left"]], color=(255, 0, 0)
+        )  # left in red
 
     save_status = None
     if output_path:
-        save_status = plt.imsave(output_path, output_image) # TODO: use cv2.imsave instead
+        save_status = plt.imsave(
+            output_path, output_image
+        )  # TODO: use cv2.imsave instead
     return output_image
