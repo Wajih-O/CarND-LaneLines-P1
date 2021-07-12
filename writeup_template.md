@@ -47,7 +47,7 @@ segments = list(filter(lambda segment: not segment.vertical and not segment.near
 
 ![alt text][hough_lines_segments]
 
-We then cluster the detected Segments using an agglomerative clustering approach where we iteratively merge the most similar segments into a potentially bigger one. The merging is controlled with a global similarity threshold below which the merge is not allowed. Multiple agglomerative clustering could be combined while shrinking the similarity threshold within a range.
+We then cluster the detected Segments using an agglomerative clustering approach (see `lane_detection/clustering.py`) where we iteratively merge the most similar segments into a potentially bigger one. The merging is controlled with a global similarity threshold below which the merge is not allowed. Multiple agglomerative clustering could be combined while shrinking the similarity threshold within a range.
 
 The agglomeration could be exploited in different ways: one approach keeps merging until we have two segments (which are more likely to be the lane sides). Another one more conservative approach is to allow more multiple segments/lines (more than 2) then use either the segment length, the slope, or both to define the two lines representing the lane sides.
 
