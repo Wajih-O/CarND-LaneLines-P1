@@ -60,20 +60,6 @@ def horizon_crop(image: np.ndarray, horizon: Optional[int] = None) -> np.ndarray
     return output_image
 
 
-def weighted_img(img, initial_img, α=0.8, β=1.0, γ=0.0):
-    """
-    `img` is the output of the hough_lines(), An image with lines drawn on it.
-    Should be a blank image (all black) with lines drawn on it.
-
-    `initial_img` should be the image before any processing.
-
-    The result image is computed as follows:
-
-    initial_img * α + img * β + γ
-
-    """
-    return cv2.addWeighted(initial_img, α, img, β, γ)
-
 
 def interest_region_crop(image):
     """A helper masking the image with Mask with region of interest"""
@@ -100,8 +86,10 @@ def interest_region_crop(image):
 config = {"threshold": 0.98, "similarity": "slope", "slope_threshold": 0.5}
 
 
-def extract_lane(image, config=config) -> List[Segment]:
+
+def extract_lane(image, config=config, agglomerate=False, prior: Optional[Dict[str, Segment]]=None) -> List[Segment]:
     """A helper to extract the  2 segments defining the lane"""
+
     # Detect edge using canny on a gaussian blur
     if len(image.shape) not in {2, 3}:
         raise Exception("Not supported dimension")
@@ -110,67 +98,79 @@ def extract_lane(image, config=config) -> List[Segment]:
     else:
         assert len(image.shape) == 2
         width, height = image.shape
-    logging.debug(f"image dimension {width}x{height}")
+
     edges_image = interest_region_crop(
         horizon_crop(canny(gaussian_blur(grayscale(image))))
     )
-    # Extract segments (detect lines) then filter the horizontal and nearly horizontal ones
+
+    # Extract segments (detect lines) then filter the nearly horizontal and nearly vertical ones :)
+    hough = HoughLines(min_line_length=20)
     segments = list(
         filter(
             lambda segment: not segment.nearly_vertical(0.2)
-            and not segment.nearly_horizontal(config.get("slope_threshold", 0.5)),
-            [Segment(item) for item in np.squeeze(HoughLines()(edges_image))],
+            and not segment.nearly_horizontal(config.get("slope_threshold", 0.8)),
+            [Segment(item) for item in np.squeeze(hough(edges_image))],
         )
     )
-    # Iterative segments merge (agglomerative approach with shrinking threshold)
 
-    threshold = config.get("threshold")
-    while len(segments) > 2:  # iterative adaptation of the threshold
-        cluster_dict, segments_store = agglomerate(
-            segments, threshold=threshold, similarity=config.get("similarity")
-        )
-        # Filter/Sort and Select the 2 longest (merged/extended line) segments as the candidate for lane detection
-        merged_segments = sorted(
-            filter(
-                lambda segment: segment is not None,
-                [segments_store.get(key, None) for key in cluster_dict],
-            ),
-            key=lambda segment: segment.length,
-            reverse=True,
-        )
-        segments = merged_segments[:]
-        threshold *= 0.9  #  more tolerance to the similarity threshold
+    # injecting prior
+    if prior is not None:
+        # only get the lower part of segment with proportion prop (the proportion is valid because of a weighted polyfit using the segment length)
+        segments.extend(map(lambda segment: segment.lower(prop=.2), prior.values()))
 
-    right, left = None, None
-    left_right = sorted(
-        sorted(
-            filter(lambda segment: segment.length > 40, segments),
-            key=lambda segment: segment.length,
-            reverse=True,
-        ),
-        key=lambda segment: segment.slope,
-    )[:2]
-    if len(left_right) == 2:
-        left, right = left_right
-        # extending the right and left side with the projection of the center of the image
-        # expectedly close to the horizon (to replace with the intersection of the 2 lane lines/sides)
-        height, width = image.shape[:2]
-        # center = Point(width//2, height//2)
-        # Extending the right and left side segments of the lane to their intersection
-        intersection = right.intersection(left)
-        right = right.point_extend(intersection, inclusive=False)
-        left = left.point_extend(intersection, inclusive=False)
-        # Extending the right and left side segments of the lane to the bottom of the image
-        right = right.point_extend(
-            right.intersection(Segment((0, height - 1, width - 1, height - 1))),
-            inclusive=False,
-        )
-        left = left.point_extend(
-            left.intersection(Segment((0, height - 1, width - 1, height - 1))),
-            inclusive=False,
-        )
+    # Split slope extraction (use a fitted line to split the lane into right side and left side)
+    X, y = zip(*[(end.x, end.y) for segment in segments for end in segment.ends.values()])
+    split_slope = np.polyfit(X, y, 1)[0]
+    # split into 2 classes
+    side_1_segments, side_2_segments = [], []
+    for segment in segments:
+        (side_1_segments if segment.slope < split_slope else side_2_segments).append(segment)
 
-    # preparing output dict with left and right annotation as keys
+    output =  {}
+    for side, side_segments in enumerate([side_1_segments, side_2_segments]):
+        if agglomerate and len(side_segments) > 5:
+            # Optionally agglomerate
+            threshold = config.get("threshold")
+            # Agglomerate first and second class (removing outliers)
+            cluster_dict, segments_store = agglomerate(
+                side_segments, threshold=threshold, similarity=config.get("similarity")
+            )
+            merged_segments = sorted(
+                filter(
+                    lambda segment: segment is not None,
+                    [segments_store.get(key, None) for key in cluster_dict],
+                ),
+                key=lambda segment: segment.length,
+                reverse=True,
+            )
+        else:
+            merged_segments = side_segments
+
+        # Fit/merge the sides segments
+        X, y, lengths = zip(*[(end.x, end.y, segment.length) for segment in side_segments[:] for end in segment.ends.values()])
+        side_slope, side_intercept = np.polyfit(X, y, 1, w=lengths)
+        # Project first segment (the longer one)
+        output[side] = merged_segments[0].y_adjust(side_slope, side_intercept)
+
+    # label sides
+    left = output[0]
+    right = output[1]
+
+    # Extending the right and left side segments of the lane to the horizon
+    intersection = right.intersection(left)
+    right = right.point_extend(intersection, inclusive=False)
+    left = left.point_extend(intersection, inclusive=False)
+    # Extending the right and left side segments of the lane to the bottom of the image
+    height, width = image.shape[:2]
+    right = right.point_extend(
+        right.intersection(Segment((0, height - 1, width - 1, height - 1))),
+        inclusive=False,
+    )
+    left = left.point_extend(
+        left.intersection(Segment((0, height - 1, width - 1, height - 1))),
+        inclusive=False,
+    )
+
     output_dict = {}
     if left:
         output_dict["left"] = left

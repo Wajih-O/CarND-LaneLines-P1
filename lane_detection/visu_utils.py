@@ -32,16 +32,32 @@ def draw_lines(img, lines: List[Segment], color=[255, 0, 0], thickness=4):
     return img
 
 
+def weighted_img(img, initial_img, α=0.8, β=1.0, γ=0.0):
+    """
+    `img` is the output of the hough_lines(), An image with lines drawn on it.
+    Should be a blank image (all black) with lines drawn on it.
+
+    `initial_img` should be the image before any processing.
+
+    The result image is computed as follows:
+
+    initial_img * α + img * β + γ
+
+    """
+    return cv2.addWeighted(initial_img, α, img, β, γ)
+
+
 def visualize_segments(clusters: List[Tuple[Segment, Tuple]], image_path, ax=plt):
     """Visualize segment clusters (with assigned color to each segment)"""
     img = None
     if len(clusters):
         segments, color = clusters[0]
-        img = draw_lines(mpimg.imread(image_path), segments, color=color)
+        img = draw_lines(mpimg.imread(image_path), segments, color=color, thickness=10)
     for cluster in clusters[1:]:
         segments, color = cluster
         img = draw_lines(img, segments, color=color)
     if img is not None:
+        img = weighted_img(mpimg.imread(image_path), img, .5, .5)
         ax.imshow(img)
     return img
 
@@ -74,19 +90,22 @@ def visualize_clusters_merge(clusters_dict, segments_cache, image, palette=palet
     )
 
 
+
+
+
 def draw_lane(image, extracted_lane: Dict = {}, output_path: Optional[str] = None):
     """render extracted lane"""
     # TODO: refactor separate concern moving out the saving to a file
-    output_image = image.copy()
+    lane_annotation_image = image.copy()
     if "right" in extracted_lane:
-        output_image = draw_lines(
-            output_image, [extracted_lane["right"]], color=(0, 255, 0)
-        )  # right side in green
+        lane_annotation_image = draw_lines(
+            lane_annotation_image, [extracted_lane["right"]], color=(0, 255, 0),
+        thickness=10)  # right side in green
     if "left" in extracted_lane:
-        output_image = draw_lines(
-            output_image, [extracted_lane["left"]], color=(255, 0, 0)
-        )  # left in red
-
+        lane_annotation_image = draw_lines(
+            lane_annotation_image, [extracted_lane["left"]], color=(255, 0, 0),
+        thickness=10)  # left in red
+    output_image = weighted_img(lane_annotation_image, image, .5, .5)
     save_status = None
     if output_path:
         save_status = plt.imsave(
