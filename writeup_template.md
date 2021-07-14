@@ -40,81 +40,51 @@ edges_image = interest_region_crop(horizon_crop(canny(gaussian_blur(grayscale(im
 The output is then an edge image containing the piece of the road, including the lane lines. On this resulted image, we perform a line detection using HoughLines see `lane_detection.hough_lines`. These lines are filtered to remove the lines with extreme slopes:
 horizontal,  nearly horizontal, and vertical lines. As an output of these lines, detection and filtering a list of `Segment` is built. The `Segment` class (see `lane_detection/segment.py`) is a crucial helper class that implements several geometrical helpers to extract slope, similarities, projection, and intersection.
 
+
 ```python
-segments = list(filter(lambda segment: not segment.vertical and not segment.nearly_horizontal(config.get("slope_threshold", 0.5)),
-[Segment(item) for item in np.squeeze(HoughLines()(edges_image))]))
+
+    # Extract segments (detect lines) then filter the nearly horizontal and nearly vertical ones :)
+    hough = HoughLines(min_line_length=20)
+    segments = list(
+        filter(
+            lambda segment: not segment.nearly_vertical(0.2)
+            and not segment.nearly_horizontal(config.get("slope_threshold", 0.8)),
+            [Segment(item) for item in np.squeeze(hough(edges_image))],
+        )
+    )
+
 ```
 
 ![alt text][hough_lines_segments]
 
-We then cluster the detected Segments using an agglomerative clustering approach (see `lane_detection/clustering.py`) where we iteratively merge the most similar segments into a potentially bigger one. The merging is controlled with a global similarity threshold below which the merge is not allowed. Multiple agglomerative clustering could be combined while shrinking the similarity threshold within a range.
+If a previous detection is available, we this as a prior (see code snippet below)
 
-The agglomeration could be exploited in different ways: one approach keeps merging until we have two segments (which are more likely to be the lane sides). Another one more conservative approach is to allow more multiple segments/lines (more than 2) then use either the segment length, the slope, or both to define the two lines representing the lane sides.
+``` python
+    # Injecting prior
+    if prior is not None:
+        # only get the lower part of segment with proportion prop (the proportion is valid because of a weighted poly/line-fit using the segment length)
+        segments.extend(map(lambda segment: segment.lower(prop=.2), prior.values()))
+```
 
-The two elected sides of the lane will get a right/left label accordingly to their slopes. Besides, lane sides are extended to their mutual intersection and the intersection with the bottom of the image. The result for the example image is shown below.
+To separate the slopes into two clusters, one for each side of the lane (right/left), we first fit a line on the completed data that most likely
+generates a line that separates the two clusters. Using the slope of this fitted line as a threshold, we split the segments into our left and right groups/classes.
+
+``` python
+    # Split slope extraction (use a fitted line to split the lane into right side and left side)
+    X, y = zip(*[(end.x, end.y) for segment in segments for end in segment.ends.values()])
+    split_slope = np.polyfit(X, y, 1)[0]
+    # split into 2 classes
+    side_1_segments, side_2_segments = [], []
+    for segment in segments:
+        (side_1_segments if segment.slope < split_slope else side_2_segments).append(segment)
+```
+
+
+Having the two clusters of segments, we then fit a line on each. Then, for each of the two clusters,  adjust one segment to the fitted line; projecting the segment with x coordinate on the fitted line. Preferably the longest segment for lower artifacts (see `Segment.y_adjust` method). The two adjusted segments are then extended to the bottom of the screen and the horizon (defined by their intersection) and returned as a right/left annotated result to the drawing utils.
 
 ![detected lane][detected_lane]
 
-## Segment features/similarity/merging
-
-The segment class implements similarity measures such as `cosine similarity` or exponential kernel on a distance. Moreover, it defines the merging strategy as one of the following:
-1 - (among the similar) Extending the longer segments by projecting the ends of the small ones.
-2 - Mutually extend each of the similar segments by projecting the ends of the other matched one, then chose the longest merge.
-3 - We mutually extend both similar segments; the ends of the extensions are then matched. The result ends are chosen on the segments connecting the extended ones given more weight for the longest initial segment (see details below (Weighted merging examples)).
-
-### Extending a segment with a projection of a point
-
-``` python
-from lane_detection import Point, Segment
-
-ss = segments_sample[4]
-ref = Point(400, 200) # a test point to project on the segment `ss`
-projected = ss.project(ref)
-projection = Segment((ref.x, ref.y, projected.x, projected.y))
-
-extension = Segment((ss.x1, ss.y1, projected.x, projected.y))
-extension_image = visualize_segments([([ss], [255, 0, 0]), # original segment in red
-                    ([projection], [255, 255, 0]), # ref/test point ortho. projection on the red segment
-                    ([extension], [0, 0, 0]), # resulted extension
-                  ], test_images[0])
-
-```
-
-![Segment extension with point projection][segment_extension]
-
-### Weighted merging examples
-```python
-synth_segments = [Segment((400, 300, 200, 500)), Segment((500, 300, 100, 500))] # test synthetic segments
-extended = synth_segments[0].mutual_extend(synth_segments[1], sort=True, reverse=True)
-
-# Match extended segment ends
-matching = extended[0].match_ends(extended[1])
-
-match_1 = Segment(extended[0].ends[0].as_tuple + extended[1].ends[matching[0]].as_tuple)
-match_2 = Segment(extended[0].ends[1].as_tuple + extended[1].ends[matching[1]].as_tuple)
-
-
-weight = extended[1].norm/( extended[1].norm + extended[0].norm )
-
-
-t1_x, t1_y = (match_1.vect*weight).ravel()
-t2_x, t2_y = (match_2.vect*weight).ravel()
-
-
-end_0_translated = Segment(extended[0].ends[0].as_tuple + extended[0].ends[0].translate(Point(t1_x, t1_y)).as_tuple)
-end_1_translated = Segment(extended[0].ends[1].as_tuple + extended[0].ends[1].translate(Point(t2_x, t2_y)).as_tuple)
-
-merge_output = Segment(end_0_translated.ends[1].as_tuple + end_1_translated.ends[1].as_tuple)
-
-weighted_merge_image = visualize_segments([ (extended, [0, 0, 0]), # extended Segments in black
-                     (synth_segments, [255, 0, 0]), # original segments in RED
-                     ([match_1, match_2], [255, 255, 0]), # matched ends (in yellow)
-                     ([end_0_translated, end_1_translated], (0, 0, 255)), # where the merge will happen
-                     ([merge_output], (0, 255, 0)) # merge output in green
-                   ],test_images[0] )
-```
-
-![Weighted merge][weighted_merge]
+Optionally we can merge/clean the extracted segments using an agglomerative clustering approach (see `lane_detection/clustering.py`) where we iteratively merge the most similar segments into a potentially bigger one. The merging is controlled with a global similarity threshold below which the merge is not allowed. Multiple agglomerative clustering could be combined while shrinking the similarity threshold within a range. That would remediate to false detection (no segments) for a high hough line length threshold, using a more permissive threshold and agglomerate the small segment into a bigger one.
 
 
 ### Drawing the lanes
@@ -128,29 +98,33 @@ The `draw_lanes()` function consumes the output of the lane extraction: a dictio
 ```
 
 ```python
-def draw_lane(image, extracted_lane:Dict={}, output_path:Optional[str]=None) :
-    """ render extracted lane """
-    output_image = image.copy()
+def draw_lane(image, extracted_lane: Dict = {}, output_path: Optional[str] = None):
+    """render extracted lane"""
+    lane_annotation_image = image.copy()
     if "right" in extracted_lane:
-        output_image = draw_lines(output_image, [extracted_lane["right"]], color=(0, 255, 0)) # right side in green
+        lane_annotation_image = draw_lines(
+            lane_annotation_image, [extracted_lane["right"]], color=(0, 255, 0),
+        thickness=10)  # right side in green
     if "left" in extracted_lane:
-        output_image = draw_lines(output_image,  [extracted_lane["left"]], color=(255, 0, 0)) # left in red
-
+        lane_annotation_image = draw_lines(
+            lane_annotation_image, [extracted_lane["left"]], color=(255, 0, 0),
+        thickness=10)  # left in red
+    output_image = weighted_img(lane_annotation_image, image, .5, .5)
     save_status = None
     if output_path:
-        save_status = plt.imsave(output_path, output_image) # TODO: use cv2.imsave instead
+        save_status = plt.imsave(
+            output_path, output_image
+        )
     return output_image
 ```
 
 ## Potential shortcomings with the current pipeline
 
-One potential shortcoming is that the approach relies to good and clean line detection.  A noisy hough output will result in a challenging clustering problem.
-As the challenging video case presents the shadow of a tree on the road could cause a challenging segments pool to merge, with potentially more risk of extending a false positive segment. This also might occur with a shadow of tree trunk or a street light.
+One potential shortcoming is that the approach relies on clean line detection.  A noisy hough output will result in a challenging clustering/lane sides separation problem.
 
-Another shortcoming could be the calibration of the parameters for the similarity a too high threshold will not allow a merging of the segments while a too permissive one would result merging/extending a slightly off direction that does not fit the lane.
+As the challenging video case presents the shadow of a tree on the road and the imperfection of the road surface due to reparation could cause a hard segments pool to filter/merge, with potentially more risk of extending a false positive segment (if we use agglomerative approach). We should be aware of high/low contrast while extracting the contour/lines.
 
-As each of lane side has on its turn two sides (would result in 2 ). Oscillating side definition between the 2 edges of a side (the longer is extended)
-
+Another shortcoming is the linear model that could not fit curves, and it is better to partition the image (vertically/depth-wise) and stitch band detected lanes together (see possible improvements).
 
 ## Possible improvements
 
@@ -160,7 +134,4 @@ A possible improvement is splitting the image vertically and then performing loc
 
 ### Injecting prior from the previous frame
 
-Instead of no prior approach where the lane detection has only the current frame/image as input, we can think about transferring information from the previously processed frame/image. That can be ensured in various ways:
-1- A narrower filtering around the previous slopes ranges.
-2- Split the previous lane and inject the near context (bottom of the image/ closer to the car)
-3 - Extend the further segments from the last frame and inject them into the pool of segments.
+Instead of no prior approach where the lane detection has only the current frame/image as input, we demonstrate one wat of prior injection from a previous frame with successful detection. We can think about another form of prior as re-use the original segments or the one with high confidence. (with a configurable prior weight)
