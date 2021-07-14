@@ -11,8 +11,8 @@ from lane_detection.point import Point
 class Segment:
     def __init__(self, segment: Tuple[int, int, int, int]):
         self.x1, self.y1, self.x2, self.y2 = segment
-        # Sorted ends  with x (axis)  TODO:  refactor with Point class
-        # if self.x2 > self.x1:
+        # # Sorted ends  with x (axis)  TODO:  refactor with Point class
+        # if self.x2 < self.x1:
         #     self.x2, self.y2, self.x1, self.y1 = segment
 
     def __eq__(self, other):
@@ -23,6 +23,10 @@ class Segment:
             and self.x2 == other.x2
             and self.y2 == other.y2
         )
+
+    def y_adjust(self, slope, intercept) -> "Segment":
+        " Return adjusted segment using slope and intercept: recomputing ys "
+        return Segment((self.x1, int((self.x1*slope) + intercept), self.x2, int((self.x2*slope) + intercept)))
 
     @property
     def equation(self) -> Tuple[float, float, float]:
@@ -44,6 +48,14 @@ class Segment:
                 int((b1 * c2 - b2 * c1) / c_inter), int((a2 * c1 - a1 * c2) / c_inter)
             )
         return None
+
+    def lower(self, prop:.5):
+        """ Get the lower part of a segment near the bottom of the screen (high) """
+        # get the lowest ends of a segment ()
+        p1, sense =  (Point(self.x2, self.y2), -1) if self.y2 > self.y1 else (Point(self.x1, self.y1), 1)
+        t_x, t_y = (sense * prop * self.vect).ravel() # defind translation
+        p2 = p1.translate(Point(t_x, t_y))
+        return Segment((p1.x, p1.y, p2.x, p2.y))
 
     @property
     def horizontal(self) -> bool:
@@ -240,20 +252,17 @@ class Segment:
         )
 
     def merge(self, other: "Segment") -> "Segment":
-        """Merges/extends the bigger segment with the `smaller one` projection"""
-        # return self.weighted_merge(other) # alternatively run a weighted merge to clean-up
-        # extends the longer segment with the ends of smaller one alternatively run a weighted merge to clean-up
+        """Merges/extends this segment with the other"""
 
-        # TODO: Make this mothod configurable
-        # Config 1:
-        if self.norm > other.norm:
-            return self.extend(other)
-        else:
-            return other.extend(self)
+        X, y, lengths = zip(*[(end.x, end.y, segment.length) for segment in [self, other] for end in segment.ends.values()])
+        side_slope, side_intercept = np.polyfit(X, y, 1, w=lengths)
+        # Project first segment (the longer one)
+        adjusted_1 = self.y_adjust(side_slope, side_intercept)
+        adjusted_2 = other.y_adjust(side_slope, side_intercept)
 
         # Mutual extend
-        # candidates = self.mutual_extend(other)
-        # return candidates[np.argmax(list(map(lambda x:x.norm,candidates)))]
+        candidates = adjusted_1.mutual_extend(adjusted_2)
+        return candidates[np.argmax(list(map(lambda x:x.norm,candidates)))]
 
     def to_tuple(self):
         """Transfrom segment to tuple"""
